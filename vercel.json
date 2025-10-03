@@ -1,19 +1,31 @@
 {
   "version": 2,
   "name": "shanks-1inch",
-  "builds": [
-    {
-      "src": "/*",
-      "use": "@vercel/static"
-    }
-  ],
   "headers": [
+    {
+      "source": "/js/(.*).js",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/javascript; charset=utf-8"
+        }
+      ]
+    },
+    {
+      "source": "/css/(.*).css",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "text/css; charset=utf-8"
+        }
+      ]
+    },
     {
       "source": "/(.*)",
       "headers": [
         {
           "key": "X-Frame-Options",
-          "value": "DENY"
+          "value": "SAMEORIGIN"
         },
         {
           "key": "X-Content-Type-Options",
